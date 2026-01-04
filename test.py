@@ -1,63 +1,62 @@
+import pandas as pd
 import json
-from transformers import AutoTokenizer
+import os
 
-# 1. SETUP - Targeting Qwen 3
-# Note: As of late 2025/early 2026, the ID is Qwen/Qwen3-0.6B
-model_id = "Qwen/Qwen3-0.6B"
-input_file = "data/train_sft_145.jsonl"
-SAFE_LIMIT = 2030 
+# 1. Paths - Corrected for your local wordle directory
+input_parquet = 'data/train-00000-of-00001.parquet'
+output_jsonl = 'data_full_experiment.jsonl'
 
-print(f"Loading Qwen 3 Tokenizer: {model_id}...")
-try:
-    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
-except Exception as e:
-    print(f"Error loading tokenizer: {e}")
-    # Fallback to 2.5 if 3 isn't available in your cache yet
-    print("Trying fallback or check your model ID.")
+# --- THE DETAILED RL SYSTEM PROMPT ---
+RL_SYSTEM_PROMPT = (
+    "You are an expert AI playing Wordle.\n"
+    "GOAL: Guess the secret 5-letter word in 6 tries.\n\n"
+    "GAME RULES:\n"
+    "1. You must input a valid 5-letter English word.\n"
+    "2. Feedback is given for each letter:\n"
+    "   - G (Green): The letter is in the word and in the CORRECT position.\n"
+    "   - Y (Yellow): The letter is in the word but in the WRONG position.\n"
+    "   - X (Gray): The letter is NOT in the word (or no extra copies exist).\n\n"
+    "LOGIC & STRATEGY:\n"
+    "- Eliminate Impossible Letters: Never use a letter marked 'X' again.\n"
+    "- Lock in Knowns: If a letter is 'G', keep it in that exact spot.\n"
+    "- Move Yellows: If a letter is 'Y', you must use it, but try a different spot.\n\n"
+    "FORMATTING:\n"
+    "First, think step-by-step inside <think>...</think> tags about which letters are valid.\n"
+    "Then, output your guess inside <guess>[word]</guess> tags."
+)
+
+# 2. Load the full 1,000 games
+if not os.path.exists(input_parquet):
+    print(f"Error: Could not find {input_parquet}")
     exit()
 
-lengths = []
-over_limit_count = 0
+print(f"Loading {input_parquet}...")
+df = pd.read_parquet(input_parquet)
+print(f"Loaded {len(df)} games.")
 
-print(f"Analyzing {input_file} for Qwen 3 compatibility...")
+sft_dataset = []
 
-with open(input_file, 'r') as f:
-    for line in f:
-        data = json.loads(line)
-        messages = data['messages']
-        
-        # Apply the Qwen 3 chat template
-        # This is critical because Qwen 3 adds specific reasoning/control tokens
-        full_text = tokenizer.apply_chat_template(
-            messages, 
-            tokenize=False, 
-            add_generation_prompt=False
-        )
-        
-        token_count = len(tokenizer.encode(full_text))
-        lengths.append(token_count)
-        
-        if token_count > SAFE_LIMIT:
-            over_limit_count += 1
+# 3. Transform every game into SFT turns
+for index, row in df.iterrows():
+    original_history = list(row['prompt']) 
+    
+    # Overwrite with the detailed prompt
+    if original_history[0]['role'] == 'system':
+        original_history[0]['content'] = RL_SYSTEM_PROMPT
+    
+    conversation_history = original_history
+    
+    for turn in row['completion']:
+        if turn['role'] == 'assistant':
+            sft_dataset.append({"messages": conversation_history + [turn]})
+            conversation_history.append(turn)
+        elif turn['role'] == 'user':
+            conversation_history.append(turn)
 
-# 3. REPORT STATS
-max_len = max(lengths)
-avg_len = sum(lengths) / len(lengths)
+# 4. Save
+with open(output_jsonl, 'w') as f:
+    for entry in sft_dataset:
+        f.write(json.dumps(entry) + '\n')
 
-print("\n" + "="*40)
-print("       QWEN 3 TOKEN ANALYSIS")
-print("="*40)
-print(f"Model ID:          {model_id}")
-print(f"Total SFT Rows:    {len(lengths)}")
-print(f"Max Seq Length:    {max_len} tokens")
-print(f"Avg Seq Length:    {int(avg_len)} tokens")
-print(f"Rows > {SAFE_LIMIT}:     {over_limit_count}")
-print("-" * 40)
-
-if over_limit_count == 0:
-    print(f"✅ PERFECT: All rows fit within your {SAFE_LIMIT} limit.")
-else:
-    percentage = (over_limit_count / len(lengths)) * 100
-    print(f"⚠️ WARNING: {over_limit_count} rows ({percentage:.2f}%) exceed the limit.")
-    print(f"You should re-run the clean_data script for Qwen 3.")
-print("="*40)
+print(f"\nSUCCESS! Generated {len(sft_dataset)} training rows.")
+print(f"Dataset saved to: {output_jsonl}")
