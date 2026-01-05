@@ -7,7 +7,7 @@
     "parent_library": "transformers.models.qwen3.modeling_qwen3",
     "unsloth_fixed": true
   },
-  "base_model_name_or_path": "unsloth/Qwen3-0.6B-unsloth-bnb-4bit",
+  "base_model_name_or_path": "unsloth/Qwen3-4B-unsloth-bnb-4bit",
   "bias": "none",
   "corda_config": null,
   "ensure_weight_tying": false,
@@ -33,8 +33,8 @@
   "rank_pattern": {},
   "revision": null,
   "target_modules": [
-    "gate_proj",
     "down_proj",
+    "gate_proj",
     "up_proj"
   ],
   "target_parameters": null,

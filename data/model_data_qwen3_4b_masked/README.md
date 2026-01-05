@@ -1,9 +1,9 @@
 ---
-base_model: unsloth/Qwen3-0.6B-unsloth-bnb-4bit
+base_model: unsloth/Qwen3-4B-unsloth-bnb-4bit
 library_name: peft
 pipeline_tag: text-generation
 tags:
-- base_model:adapter:unsloth/Qwen3-0.6B-unsloth-bnb-4bit
+- base_model:adapter:unsloth/Qwen3-4B-unsloth-bnb-4bit
 - lora
 - sft
 - transformers
